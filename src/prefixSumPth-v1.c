@@ -125,7 +125,7 @@ void *threadBody(void *voidArgs) {
   return NULL;
 }
 
-void parallelPrefixSumPth( volatile TYPE *Vec, long nTotalElmts, int nThreads ) {
+void parallelPrefixSumPth(volatile TYPE *Vec, long nTotalElmts, int nThreads) {
   pthread_t threads[MAX_THREADS];
   threadArguments *argsArray[MAX_THREADS];
 
