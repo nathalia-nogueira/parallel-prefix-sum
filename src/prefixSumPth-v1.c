@@ -1,6 +1,6 @@
 // TRABALHO1: ci1316 2o semestre 2025
-// Aluno1:                            GRR:
-// Aluno2:                            GRR:
+// Aluno1: Bianca Mendes Francisco    GRR: 20234263
+// Aluno2: Nathalia Nogueira Alves    GRR: 20232349
 
 #include <stdio.h>
 #include <stdlib.h>
