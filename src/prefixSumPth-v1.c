@@ -42,14 +42,7 @@ volatile TYPE *Vector;	// a pointer to the GLOBAL Vector that will by processed 
 chronometer_t parallelPrefixSumTime;
 chronometer_t memcpyTime;
 volatile TYPE partialSum[MAX_THREADS];
-pthread_barrier_t partialSumBarrier;
-pthread_barrier_t prefixSumBarrier;
-   
-typedef struct {
-  int id;
-  long start, end;
-  volatile TYPE *vector;
-} threadArguments;
+pthread_barrier_t syncBarrier;
 
 int min (int a, int b) {
 	if (a < b)
@@ -99,7 +92,7 @@ void *prefixSumBody(void *ptr) {
   int last = min((myId + 1) * nElementsPerThread, nTotalElements);
 
   while (1) {
-    pthread_barrier_wait(&prefixSumBarrier);
+    pthread_barrier_wait(&syncBarrier);
 
     TYPE myPartialSum = 0;
     for (int i = first; i < last; i++) {
@@ -107,7 +100,7 @@ void *prefixSumBody(void *ptr) {
     }
     partialSum[myId] = myPartialSum;
  
-    pthread_barrier_wait(&prefixSumBarrier);
+    pthread_barrier_wait(&syncBarrier);
 
     TYPE myPrefixSum = 0;
     for (int i = 0; i < myId; i++) {
@@ -120,7 +113,7 @@ void *prefixSumBody(void *ptr) {
       Vector[i] = myPrefixSum + localPrefixSum;   
     }
 
-    pthread_barrier_wait(&prefixSumBarrier);
+    pthread_barrier_wait(&syncBarrier);
 
     if (myId == 0)
       return NULL;
@@ -139,7 +132,7 @@ void parallelPrefixSumPth(volatile TYPE *Vec, long numTotalElmts, int numThreads
   Vector = Vec;
 
   if (!initialized) {
-    pthread_barrier_init(&prefixSumBarrier, NULL, nThreads);
+    pthread_barrier_init(&syncBarrier, NULL, nThreads);
     
     myThreadId[0] = 0;
     for (int i = 1; i < nThreads; i++) {
