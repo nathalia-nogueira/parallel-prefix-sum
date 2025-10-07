@@ -43,6 +43,7 @@ chronometer_t parallelPrefixSumTime;
 chronometer_t memcpyTime;
 volatile TYPE partialSum[MAX_THREADS];
 pthread_barrier_t partialSumBarrier;
+pthread_barrier_t prefixSumBarrier;
    
 typedef struct {
   int id;
@@ -91,91 +92,65 @@ void sequentialPrefixSum(volatile TYPE *Vec, long nTotalElmts, int nThreads) {
     Vec[i] += Vec[i-1];
 }  
 
-void* prefixCalculator(threadArguments *args) {
-  long long myPrefixSum = 0;
+void *prefixSumBody(void *ptr) {
+  int myId = *((int *)ptr);
+  int nElementsPerThread = (nTotalElements + nThreads - 1) / nThreads;
+  int first = myId * nElementsPerThread;
+  int last = min((myId + 1) * nElementsPerThread, nTotalElements);
 
-  // Calcula prefixo inicial
-  for (int i = 0; i < args->id; i++) {
-    myPrefixSum += partialSum[i];
-  }
+  while (1) {
+    pthread_barrier_wait(&prefixSumBarrier);
 
-  // Calcula e preenche somas acumulativas
-  long long sum = myPrefixSum;
-  for (long i = args->start; i < args->end; i++) {
-    sum += args->vector[i];
-    args->vector[i] = sum;
-  }
+    TYPE myPartialSum = 0;
+    for (int i = first; i < last; i++) {
+      myPartialSum += Vector[i];
+    }
+    partialSum[myId] = myPartialSum;
+ 
+    pthread_barrier_wait(&prefixSumBarrier);
 
-  return NULL;
-}
-
-void *threadBody(void *voidArgs) {
-  threadArguments *args = (threadArguments*) voidArgs;
-  long sum = 0;
-
-  // Calcula partialSum
-  for (long i = args->start; i < args->end; i++) {
-    sum += args->vector[i];
-  }
-  partialSum[args->id] = sum;
-
-  pthread_barrier_wait(&partialSumBarrier);
-
-  prefixCalculator(args);
-  return NULL;
-}
-
-void parallelPrefixSumPth(volatile TYPE *Vec, long nTotalElmts, int nThreads) {
-  pthread_t threads[MAX_THREADS];
-  threadArguments *argsArray[MAX_THREADS];
-
-  for (int i = 0; i < nThreads; ++i) {
-    partialSum[i] = 0;
-  }
-
-  pthread_barrier_init(&partialSumBarrier, NULL, nThreads);
-
-  // Calcula tamanho base de cada chunk e quantos valores "sobraram"
-  long base = nTotalElmts / nThreads;
-  long extra = nTotalElmts % nThreads;
-  long start = 0;
-
-  for (int i = 0; i < nThreads; ++i) {
-    // Calcula o tamanho e o final do chunk
-    long chunk = base;
-    if (i < extra) {
-      chunk += 1;
-    } 
-    long end = start + chunk;
-
-    // Define argumentos usados pela thread
-    argsArray[i] = (threadArguments*) malloc(sizeof(threadArguments));
-    argsArray[i]->id = i;
-    argsArray[i]->start = start;
-    argsArray[i]->end = end;
-    argsArray[i]->vector = Vec;
-
-    // Cria a thread
-    if (pthread_create(&threads[i], NULL, threadBody, (void*)argsArray[i]) != 0) {
-      for (int j = 0; j <= i; ++j) {
-        if (argsArray[j]) { 
-          free(argsArray[j]);
-        }
-      }
-      pthread_barrier_destroy(&partialSumBarrier);
-      return;
+    TYPE myPrefixSum = 0;
+    for (int i = 0; i < myId; i++) {
+      myPrefixSum += partialSum[i];
     }
 
-    start = end;
+    TYPE localPrefixSum = 0;
+    for (int i = first; i < last; i++) {
+      localPrefixSum += Vector[i];           
+      Vector[i] = myPrefixSum + localPrefixSum;   
+    }
+
+    pthread_barrier_wait(&prefixSumBarrier);
+
+    if (myId == 0)
+      return NULL;
+    }
+
+    return NULL;
+}
+
+void parallelPrefixSumPth(volatile TYPE *Vec, long numTotalElmts, int numThreads) {
+  static int initialized = 0;
+  pthread_t Thread[MAX_THREADS];
+  int myThreadId[MAX_THREADS];
+
+  nTotalElements = numTotalElmts;
+  nThreads = numThreads;
+  Vector = Vec;
+
+  if (!initialized) {
+    pthread_barrier_init(&prefixSumBarrier, NULL, nThreads);
+    
+    myThreadId[0] = 0;
+    for (int i = 1; i < nThreads; i++) {
+      myThreadId[i] = i;
+      pthread_create(&Thread[i], NULL, prefixSumBody, &myThreadId[i]);
+    }
+    
+    initialized = 1;
   }
 
-  // Espera que todas as threads terminem para liberar memória e encerrar a função
-  for (int i = 0; i < nThreads; ++i) {
-    pthread_join(threads[i], NULL);
-    free(argsArray[i]);
-  } 
-
-  pthread_barrier_destroy(&partialSumBarrier); 
+  prefixSumBody(&myThreadId[0]);
 }
 
 int main(int argc, char *argv[]) {
